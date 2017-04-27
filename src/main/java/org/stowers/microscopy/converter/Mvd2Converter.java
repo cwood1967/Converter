@@ -11,10 +11,14 @@ import loci.formats.meta.MetadataRetrieve;
 import loci.formats.meta.MetadataStore;
 import loci.formats.out.OMETiffWriter;
 import loci.formats.services.OMEXMLService;
+import loci.formats.tiff.TiffSaver;
 import loci.plugins.BF;
 import loci.plugins.in.ImporterOptions;
 import ome.xml.model.primitives.PositiveInteger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
 
+import org.stowers.microscopy.ij1plugins.FastFileSaver;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -22,6 +26,8 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
+
+
 
 public class Mvd2Converter {
 
@@ -35,6 +41,9 @@ public class Mvd2Converter {
 
     ArrayList<String> usedNames;
     int nameCounter = 0;
+
+
+//    private static final Logger LOGGER = LoggerFactory.getLogger(TiffSaver.class);
 
     public Mvd2Converter(String filename, String saveToDir) {
         this.filename = filename;
@@ -149,7 +158,8 @@ public class Mvd2Converter {
 
         writer.setBigTiff(true);
         writer.setId(seriesName);
-
+        writer.setCompression("Uncompressed");
+        writer.setWriteSequentially(true);
         return writer;
     }
 
@@ -225,11 +235,6 @@ public class Mvd2Converter {
                                 byte[] bz = {b[bk], b[bk + 1], 0, 0};
                                 float f = ByteBuffer.wrap(bz).order(ByteOrder.LITTLE_ENDIAN).getInt();
                                 res[j] += f;
-//                                byte[] ba = ByteBuffer.allocate(4).putFloat(f).array();
-//                                bb[bk] = ba[0];
-//                                bb[bk + 1] = ba[1];
-//                                bb[bk + 2] = ba[2];
-//                                bb[bk + 3] = ba[3];
                                 bk += 2;
                             }
                         }
@@ -278,14 +283,26 @@ public class Mvd2Converter {
             seriesName = sp[sp.length - 1];
         }
         seriesName = seriesName.replace(" ", "-");
-        String seriesFileName =  String.format ("%s/%05d-%s.ome.tiff", seriesDir, nameCounter, seriesName);
+        String seriesFileName =  String.format ("%s/%05d-%s.tiff", seriesDir, nameCounter, seriesName);
+
 
         if (usedNames.contains(seriesFileName)) {
             nameCounter++;
-            seriesFileName =  String.format ("%s/%05d-%s.ome.tiff", seriesDir, nameCounter, seriesName);
+            seriesFileName =  String.format ("%s/%05d-%s.tiff", seriesDir, nameCounter, seriesName);
             usedNames.add(seriesFileName);
         } else {
             usedNames.add(seriesFileName);
+        }
+
+        IJ.log(id + " " + seriesFileName);
+        ImagePlus imp = openSeries(series, false);
+
+        FastFileSaver saver = new FastFileSaver(imp);
+        saver.saveAsTiff(seriesFileName);
+
+        if (2 == 2) {
+            System.out.println("Saved fast???? " + seriesFileName);
+            return;
         }
         OMETiffWriter writer = null;
         try {
@@ -311,23 +328,39 @@ public class Mvd2Converter {
 //        Float.to
         try {
             int xz = 1;
+
+            ArrayList<byte[]> tempList = new ArrayList<>();
+            int maxsize = 2000000000;
+            int asize = 0;
             for (int i = 0; i < nslices; i++) {
                 cc = i % nc;
                 cz = i / nc;
-                ct = i / (nc*nz);
-                if (i  == i) {
-                    byte[] b = reader.openBytes(i);
-                    writer.saveBytes(i, b);
-                    xz += mod;
-                }
-            }
+                ct = i / (nc * nz);
 
+                byte[] b = reader.openBytes(i);
+//                    byte[] b = genByteArray(reader.getSizeX(), reader.getSizeY());
+                tempList.add(b);
+                asize += b.length;
+                if (asize > maxsize) {
+                    for (byte[] a : tempList) {
+                        writer.saveBytes(i, b);
+                    }
+                    tempList.clear();
+                    asize = 0;
+                }
+                for (byte[] a : tempList) {
+                    writer.saveBytes(i, b);
+                }
+                tempList.clear();
+                asize = 0;
+                xz += mod;
+            }
             writer.close();
             System.out.println("Wrote to: " +  seriesFileName);
         }
         catch (Exception e) {
             System.out.println("####### Problem writing to: " +  seriesFileName);
-//            e.printStackTrace();
+            e.printStackTrace();
         }
 
         try {
@@ -350,32 +383,68 @@ public class Mvd2Converter {
         return false;
     }
 
-    public ImagePlus getVirtualStack(int series) {
+    protected byte[] genByteArray(int ix, int iy) {
+
+        byte[] res = new byte[2*ix*iy];
+
+        for (int i = 0; i < res.length; i++) {
+            res[i] = (byte)(255*i/res.length);
+        }
+
+        return res;
+    }
+
+//    public ImagePlus getVirtualStack(int series) {
+//
+//        ImagePlus resImp = null;
+//
+//        try {
+//            ImporterOptions options = new ImporterOptions();
+//            options.setId(filename);
+//            options.setVirtual(true);
+//
+//            for (int i = 0; i < numSeries; i++) {
+//                options.setSeriesOn(i, false);
+//            }
+//            options.setSeriesOn(series, true);
+//
+//            ImagePlus[] x = BF.openImagePlus(options);
+//            resImp = x[0];
+//            resImp.show();
+//        }
+//
+//        catch (Exception e) {
+//            e.printStackTrace();
+//            resImp = null;
+//        }
+//        return resImp;
+//    }
+
+    protected ImagePlus openSeries(int series, boolean virtual) {
 
         ImagePlus resImp = null;
 
         try {
             ImporterOptions options = new ImporterOptions();
             options.setId(filename);
-            options.setVirtual(true);
+            options.setVirtual(virtual);
 
             for (int i = 0; i < numSeries; i++) {
                 options.setSeriesOn(i, false);
             }
             options.setSeriesOn(series, true);
-
+            options.setWindowless(true);
             ImagePlus[] x = BF.openImagePlus(options);
             resImp = x[0];
-            resImp.show();
         }
 
         catch (Exception e) {
             e.printStackTrace();
             resImp = null;
         }
+
         return resImp;
     }
-
     public void saveVirtualStack(ImagePlus imp, String name) {
 
         String options = "save=" + name + " export compression=Uncompressed";
