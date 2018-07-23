@@ -277,12 +277,14 @@ public class Mvd2Converter {
         String id = store.getImageID(series);
 
         String seriesId = (String)reader.getSeriesMetadata().get("id");
+
         if (seriesName == null) {
             String slash = File.separator;
             String[] sp = filename.split(slash);
             seriesName = sp[sp.length - 1];
         }
-        seriesName = seriesName.replace(" ", "-");
+        seriesName = seriesName.replace(" ", "_");
+        seriesName = seriesName.replace("/", "-");
         String seriesFileName =  String.format ("%s/%05d-%s.tiff", seriesDir, nameCounter, seriesName);
 
 
